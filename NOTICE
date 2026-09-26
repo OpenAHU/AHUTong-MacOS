@@ -1,0 +1,11 @@
+AHUTong for macOS
+
+Inspired by the OpenAHU/AHUTong project:
+https://github.com/OpenAHU/AHUTong
+
+The upstream project is licensed under GNU GPL v3. This macOS implementation
+contains independently written SwiftUI code and is distributed under
+GPL-3.0-or-later. It is not an official Anhui University application.
+
+All student names, identifiers, balances, courses, grades, exams and
+transactions included in this build are fictional demonstration data.

@@ -1,0 +1,20 @@
+[package]
+name = "guixu"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+thiserror = "1"
+rustc-hash = "2"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3"
+
+[[bench]]
+name = "guixu_bench"
+harness = false

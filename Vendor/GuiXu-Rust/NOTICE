@@ -1,0 +1,15 @@
+GuiXu Rust
+
+This project is a Rust rewrite derived from Delsart/GuiXu:
+https://github.com/Delsart/GuiXu
+
+The original Kotlin project is licensed under the Apache License, Version 2.0.
+
+The Rust rewrite and subsequent modifications are recorded in this branch under
+the following contributors:
+
+- 100011646-Wang Zhong Kai
+- Yukon163
+
+Copyright ownership remains with the respective contributors. This NOTICE is
+informational and does not modify the Apache License, Version 2.0.
