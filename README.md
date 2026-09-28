@@ -51,7 +51,8 @@
 ![登录页](/screenshot/0.png)
 ![主页](/screenshot/1.png)
 ![课表](/screenshot/2.png)
-![关于](/screenshot/3.png)
+![空闲教室](/screenshot/3.png)
+![关于](/screenshot/4.png)
 ## 联系我们
 - [安大通2026-意见交流群](https://qm.qq.com/q/ewnp5Ya9ig)：**1006203134**
 - [安大通官网](https://openahu.org/)
