@@ -77,6 +77,28 @@ struct CampusSnapshot: Sendable {
     var warnings: [String]
 }
 
+private struct CampusWebCookie: Decodable, Sendable {
+    let name: String
+    let value: String
+    let domain: String
+    let path: String?
+    let secure: Bool?
+
+    func matches(_ url: URL) -> Bool {
+        let host = url.host?.lowercased() ?? ""
+        let normalizedDomain = domain
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let domainMatches = host == normalizedDomain || host.hasSuffix(".\(normalizedDomain)")
+        let requestPath = url.path.isEmpty ? "/" : url.path
+        let cookiePath = path.flatMap { $0.isEmpty ? nil : $0 } ?? "/"
+        let pathMatches = requestPath == cookiePath
+            || (requestPath.hasPrefix(cookiePath)
+                && (cookiePath.hasSuffix("/") || requestPath.dropFirst(cookiePath.count).first == "/"))
+        return domainMatches && pathMatches && (secure != true || url.scheme == "https")
+    }
+}
+
 actor CampusCoreClient {
     static let shared = CampusCoreClient()
 
@@ -173,6 +195,61 @@ actor CampusCoreClient {
         do { snapshot.cardQRCode = try await cardQRCode() }
         catch { snapshot.warnings.append("校园卡二维码：\(safeMessage(error))") }
         return snapshot
+    }
+
+    func freeClassroomBuildings(campusID: Int) async throws -> [ClassroomBuilding] {
+        guard (1...2).contains(campusID) else {
+            throw CampusClientError.service("请选择有效校区")
+        }
+        var components = URLComponents(string: "https://jw.ahu.edu.cn/student/ws/room/get-buildings")
+        components?.queryItems = [
+            URLQueryItem(name: "campusId", value: String(campusID)),
+            URLQueryItem(name: "hasDataPermission", value: "false")
+        ]
+        guard let url = components?.url else { throw CampusClientError.invalidResponse }
+        let data = try await authenticatedCampusData(url: url)
+        return try JSONDecoder().decode([ClassroomBuilding].self, from: data)
+            .filter(\.enabled)
+            .sorted { $0.nameZh.localizedStandardCompare($1.nameZh) == .orderedAscending }
+    }
+
+    func freeClassrooms(query: FreeClassroomQuery) async throws -> [FreeClassroomRoom] {
+        guard !query.buildingIDs.isEmpty else {
+            throw CampusClientError.service("请选择至少一栋教学楼")
+        }
+        guard query.endDate >= query.startDate else {
+            throw CampusClientError.service("结束日期不能早于开始日期")
+        }
+
+        let url = URL(string: "https://jw.ahu.edu.cn/student/ws/room-borrow/free-list")!
+        let units = (query.units.isEmpty ? Array(1...13) : query.units).map(String.init)
+        var collected: [FreeClassroomRoom] = []
+        for buildingID in query.buildingIDs {
+            let payload = FreeClassroomRequest(
+                buildingId: String(buildingID),
+                campusId: String(query.campusID),
+                dateTimeSegmentCmd: .init(
+                    endDateTime: FreeClassroomQuery.dateString(query.endDate),
+                    startDateTime: FreeClassroomQuery.dateString(query.startDate),
+                    units: units
+                )
+            )
+            let data = try await authenticatedCampusData(
+                url: url,
+                method: "POST",
+                body: try JSONEncoder().encode(payload),
+                contentType: "application/json"
+            )
+            collected += try JSONDecoder().decode(FreeClassroomEnvelope.self, from: data).roomList
+        }
+
+        return Dictionary(grouping: collected, by: \.id)
+            .values
+            .compactMap(\.first)
+            .sorted {
+                ($0.building.nameZh, $0.floor, $0.nameZh)
+                    < ($1.building.nameZh, $1.floor, $1.nameZh)
+            }
     }
 
     private func currentWeek() async throws -> Int {
@@ -309,6 +386,48 @@ actor CampusCoreClient {
                 throw CampusClientError.service("学校服务暂时不可用，请稍后重试")
             default: throw CampusClientError.service("学校服务请求失败（\(response.statusCode)）")
             }
+        }
+        return data
+    }
+
+    private func authenticatedCampusData(
+        url: URL,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil
+    ) async throws -> Data {
+        let cookieData = try await request(path: "/cookies/flat")
+        let cookies = try JSONDecoder().decode([CampusWebCookie].self, from: cookieData)
+
+        var webRequest = URLRequest(url: url)
+        webRequest.httpMethod = method
+        webRequest.httpBody = body
+        webRequest.timeoutInterval = 30
+        webRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        webRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let contentType {
+            webRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        let cookieHeader = cookies
+            .filter { $0.matches(url) }
+            .map { "\($0.name)=\($0.value)" }
+            .joined(separator: "; ")
+        guard !cookieHeader.isEmpty else { throw CampusClientError.invalidCredentials }
+        webRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+
+        let (data, response) = try await session.data(for: webRequest)
+        guard let response = response as? HTTPURLResponse else {
+            throw CampusClientError.invalidResponse
+        }
+        if response.statusCode == 401 || response.statusCode == 403 {
+            throw CampusClientError.invalidCredentials
+        }
+        if response.url?.host?.lowercased() != url.host?.lowercased()
+            || response.url?.path.lowercased().contains("/cas/login") == true {
+            throw CampusClientError.service("教务系统登录状态已失效，请退出后重新登录")
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw CampusClientError.service("教务系统请求失败（\(response.statusCode)）")
         }
         return data
     }

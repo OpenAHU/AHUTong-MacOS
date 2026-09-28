@@ -51,6 +51,7 @@ if [[ -f "$ICON_SOURCE" ]]; then
   mkdir -p "$ICONSET"
   cp "$SCRIPT_DIR/Assets/AppIconContents.json" "$ICONSET/Contents.json"
   cp -R "$SCRIPT_DIR/Assets/AppAssets.xcassets/AHULogo.imageset" "$ASSET_CATALOG/AHULogo.imageset"
+  cp -R "$SCRIPT_DIR/Assets/AppAssets.xcassets/LoginCampusBackground.imageset" "$ASSET_CATALOG/LoginCampusBackground.imageset"
   sips -z 16 16 "$ICON_SOURCE" --out "$ICONSET/icon_16x16.png" >/dev/null
   sips -z 32 32 "$ICON_SOURCE" --out "$ICONSET/icon_16x16@2x.png" >/dev/null
   sips -z 32 32 "$ICON_SOURCE" --out "$ICONSET/icon_32x32.png" >/dev/null

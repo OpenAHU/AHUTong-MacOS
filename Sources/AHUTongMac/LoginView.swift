@@ -25,8 +25,6 @@ struct LoginView: View {
                 }
                 VStack(alignment: .leading, spacing: 11) {
                     Toggle("记住账号和密码（保存到 macOS 钥匙串）", isOn: store.rememberBinding)
-                    Text("账号和密码仅提交给安徽大学相关服务；登录时验证码图片会由上游 AHUTong SDK 自动发送至其 OCR 服务进行识别。")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if let error = store.loginError {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -50,6 +48,7 @@ struct LoginView: View {
             }
             .padding(48)
             .frame(maxWidth: 570)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 900, minHeight: 590)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -61,27 +60,45 @@ struct LoginView: View {
     }
 
     private var brandPanel: some View {
-        ZStack {
-            LinearGradient(colors: [Brand.blue, Brand.purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(.white.opacity(0.07)).frame(width: 360).offset(x: -120, y: -220)
-            Circle().fill(.white.opacity(0.06)).frame(width: 280).offset(x: 130, y: 250)
-            VStack(spacing: 22) {
-                AppLogo(size: 104)
-                    .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
-                VStack(spacing: 8) {
-                    Text("安大通 for macOS").font(.system(size: 36, weight: .bold, design: .rounded))
-                    Text("便捷访问智慧安大及教务系统").font(.title3).opacity(0.82)
-                }
-                .multilineTextAlignment(.center)
-            }
-            .foregroundStyle(.white)
-            .padding(48)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        GeometryReader { proxy in
+            ZStack {
+                Brand.blue
+                Image("LoginCampusBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+                    .opacity(0.76)
 
-            .foregroundStyle(.white)
-            .padding(48)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LinearGradient(
+                    colors: [
+                        .black.opacity(0.18),
+                        Brand.blue.opacity(0.22),
+                        .black.opacity(0.30)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack(spacing: 22) {
+                    AppLogo(size: 104)
+                        .shadow(color: .black.opacity(0.28), radius: 14, y: 5)
+                    VStack(spacing: 8) {
+                        Text("安大通 for macOS")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                        Text("便捷访问智慧安大及教务系统")
+                            .font(.title3)
+                            .opacity(0.9)
+                    }
+                    .multilineTextAlignment(.center)
+                }
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.48), radius: 5, y: 2)
+                .padding(48)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         }
         .frame(minWidth: 360, idealWidth: 430, maxWidth: 480)
+        .clipped()
     }
 }

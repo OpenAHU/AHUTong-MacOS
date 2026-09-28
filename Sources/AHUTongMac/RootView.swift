@@ -52,6 +52,7 @@ struct RootView: View {
         case .card: CampusCardView()
         case .grades: GradesView()
         case .exams: ExamsView()
+        case .freeClassroom: FreeClassroomView()
         case .services: ServicesView()
         case .about: AboutView()
         }

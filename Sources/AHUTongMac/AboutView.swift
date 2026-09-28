@@ -11,10 +11,11 @@ struct AboutView: View {
                     .shadow(color: Brand.blue.opacity(0.25), radius: 20, y: 8)
                 VStack(spacing: 7) {
                     Text("安大通 for macOS").font(.system(size: 30, weight: .bold, design: .rounded))
-                    Text("版本 1.0").font(.subheadline).foregroundStyle(.secondary)
+                    Text("版本 1.1").font(.subheadline).foregroundStyle(.secondary)
                     HStack(spacing: 4) {
                         Text("开发者：")
-                        Link("阿苏塔卡", destination: URL(string: "https://github.com/Asutaka233")!)
+                        Link("Asutaka", destination: URL(string: "https://github.com/Asutaka233")!)
+                        Link("RainYang", destination: URL(string: "https://github.com/RainYangty")!)
                     }
                 }
                 Text("基于安大通AHUTong项目移植的macOS端安徽大学教务App，采用Swift UI + Rust开发")

@@ -36,6 +36,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case card = "校园卡"
     case grades = "成绩"
     case exams = "考试"
+    case freeClassroom = "空闲教室"
     case services = "校园服务"
     case about = "关于"
 
@@ -48,6 +49,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .card: "creditcard.fill"
         case .grades: "chart.bar.doc.horizontal.fill"
         case .exams: "pencil.and.list.clipboard"
+        case .freeClassroom: "door.left.hand.open"
         case .services: "sparkles.square.filled.on.square"
         case .about: "info.circle.fill"
         }
