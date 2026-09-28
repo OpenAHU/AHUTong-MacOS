@@ -250,31 +250,43 @@ struct ScheduleView: View {
         let now = Date()
         let calendar = Calendar.current
 
-        // 获取当前的精确到全天分钟数，例如 8:50 = 8 * 60 + 50 = 530 分钟
         let currentHour = calendar.component(.hour, from: now)
         let currentMinute = calendar.component(.minute, from: now)
         let totalMinutes = currentHour * 60 + currentMinute
+        let weekday = calendar.component(.weekday, from: now)
+        let currentDayIndex = (weekday == 1) ? 6 : (weekday - 2)
+        let isTodayInSchedule = currentDayIndex >= 0 && currentDayIndex < days.count
 
-        // 如果返回 nil，说明当前处于 8:00 前或 21:35 后，隐去指示线
         if let currentY = calculateIndicatorY(
             totalMinutes: totalMinutes,
             rowHeight: rowHeight
         ) {
-            ZStack(alignment: .topLeading) {
-                // 水平红线
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: currentY))
-                    path.addLine(
-                        to: CGPoint(
-                            // 注意：这里需要确保 days 在你的视图作用域内，或者从 store 传入
-                            x: timeWidth + dayWidth * CGFloat(days.count),
-                            y: currentY
-                        )
-                    )
-                }
-                .stroke(Color.red, lineWidth: 1.5)
+            let totalGridWidth = timeWidth + dayWidth * CGFloat(days.count)
+            let todayStartX = timeWidth + CGFloat(currentDayIndex) * dayWidth
+            let todayEndX = todayStartX + dayWidth
 
-                // 左侧时间点（小红点）
+            ZStack(alignment: .topLeading) {
+                Path { path in
+                    if isTodayInSchedule {
+                        path.move(to: CGPoint(x: 0, y: currentY))
+                        path.addLine(to: CGPoint(x: todayStartX, y: currentY))
+                        path.move(to: CGPoint(x: todayEndX, y: currentY))
+                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
+                    } else {
+                        path.move(to: CGPoint(x: 0, y: currentY))
+                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
+                    }
+                }
+                .stroke(Color.red.opacity(0.25), lineWidth: 1.5)
+
+                if isTodayInSchedule {
+                    Path { path in
+                        path.move(to: CGPoint(x: todayStartX, y: currentY))
+                        path.addLine(to: CGPoint(x: todayEndX, y: currentY))
+                    }
+                    .stroke(Color.red, lineWidth: 2)
+                }
+
                 Circle()
                     .fill(Color.red)
                     .frame(width: 6, height: 6)
