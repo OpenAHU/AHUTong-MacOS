@@ -10,6 +10,17 @@ struct OverviewView: View {
             $0.weekday == mondayIndex && $0.isActive(in: store.currentWeek)
         }
     }
+    
+    var tomorrowCourses: [Course] {
+        let weekday = Calendar.current.component(.weekday, from: .now)
+        let todayIndex = weekday == 1 ? 7 : weekday - 1
+        let tomorrowIndex = todayIndex == 7 ? 1 : todayIndex + 1
+        let targetWeek = tomorrowIndex == 1 ? store.currentWeek + 1 : store.currentWeek
+        
+        return store.courses.filter {
+            $0.weekday == tomorrowIndex && $0.isActive(in: targetWeek)
+        }
+    }
 
     private var currentWeekCourses: [Course] {
         store.courses.filter { $0.isActive(in: store.currentWeek) }
@@ -64,14 +75,48 @@ struct OverviewView: View {
         }
     }
 
+    private let periodEndMinutes = [
+        8 * 60 + 45,   // 第1节 08:45
+        9 * 60 + 35,   // 第2节 09:35
+        10 * 60 + 35,  // 第3节 10:35
+        11 * 60 + 25,  // 第4节 11:25
+        12 * 60 + 15,  // 第5节 12:15
+        14 * 60 + 45,  // 第6节 14:45
+        15 * 60 + 35,  // 第7节 15:35
+        16 * 60 + 35,  // 第8节 16:35
+        17 * 60 + 25,  // 第9节 17:25
+        18 * 60 + 15,  // 第10节 18:15
+        19 * 60 + 45,  // 第11节 19:45
+        20 * 60 + 35,  // 第12节 20:35
+        21 * 60 + 25   // 第13节 21:25
+    ]
+
+    /// 判断是否显示明天课程（今天没课，或今天最后一节课已结束）
+    private var isShowingTomorrow: Bool {
+        guard let lastCourse = todayCourses.max(by: { $0.end < $1.end }) else {
+            return true // 今天没课，直接显示明天
+        }
+        let now = Date()
+        let currentMinutes = Calendar.current.component(.hour, from: now) * 60 + Calendar.current.component(.minute, from: now)
+        
+        // 取得今天最后一门课结束时的分钟数
+        let endIdx = min(max(lastCourse.end - 1, 0), periodEndMinutes.count - 1)
+        return currentMinutes >= periodEndMinutes[endIdx]
+    }
+
     private var todayCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let courses = isShowingTomorrow ? tomorrowCourses : todayCourses
+        let title = isShowingTomorrow ? "明日课程" : "今日课程"
+        let icon = isShowingTomorrow ? "sun.max.fill" : "clock.fill"
+        let emptyMsg = isShowingTomorrow ? "明日暂无课程" : "今日暂无课程"
+
+        return VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Label("今日课程", systemImage: "clock.fill").font(.headline)
+                Label(title, systemImage: icon).font(.headline)
                 Spacer()
                 Button("查看课表") { store.selection = .schedule }.buttonStyle(.plain).foregroundStyle(Brand.blue)
             }
-            ForEach(todayCourses) { course in
+            ForEach(courses) { course in
                 HStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 3).fill(course.color).frame(width: 5, height: 45)
                     VStack(alignment: .leading, spacing: 4) {
@@ -85,10 +130,10 @@ struct OverviewView: View {
                     Text("第\(course.start)–\(course.end)节")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
-                if course.id != todayCourses.last?.id { Divider() }
+                if course.id != courses.last?.id { Divider() }
             }
-            if todayCourses.isEmpty {
-                ContentUnavailableView("今日暂无课程", systemImage: "calendar.badge.checkmark")
+            if courses.isEmpty {
+                ContentUnavailableView(emptyMsg, systemImage: "calendar.badge.checkmark")
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
         }
