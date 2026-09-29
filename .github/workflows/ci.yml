@@ -1,0 +1,30 @@
+name: PR & Code Quality Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  # 1. PR 规范检测
+  pr-lint:
+    name: Check PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR Title Standard
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # 允许的 PR 标题前缀类型
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+          requireScope: false
