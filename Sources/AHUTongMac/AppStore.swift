@@ -17,7 +17,8 @@ final class AppStore: ObservableObject {
     @Published var isRefreshing = false
     @Published var lastUpdated = Date.now
     @Published var sessionPhase: SessionPhase = .signedOut
-    @Published var loginStudentID = UserDefaults.standard.string(forKey: "lastStudentID") ?? ""
+    @Published var loginStudentID =
+        UserDefaults.standard.string(forKey: "lastStudentID") ?? ""
     @Published var loginPassword = ""
     @Published var loginError: String?
     @Published var dataWarnings: [String] = []
@@ -42,12 +43,48 @@ final class AppStore: ObservableObject {
 
     let transactions: [CardTransaction] = []
     let services: [CampusService] = [
-        CampusService(title: "安徽大学官网", subtitle: "学校通知与新闻", symbol: "building.columns.fill", color: .blue, url: URL(string: "https://www.ahu.edu.cn")),
-        CampusService(title: "安徽大学教务处", subtitle: "教学通知与教务信息", symbol: "graduationcap.fill", color: .orange, url: URL(string: "https://jwc.ahu.edu.cn/")),
-        CampusService(title: "超星学习通", subtitle: "在线课程与学习资源", symbol: "books.vertical.fill", color: .green, url: URL(string: "https://www.chaoxing.com/")),
-        CampusService(title: "安大通项目", subtitle: "查看开源代码", symbol: "chevron.left.forwardslash.chevron.right", color: .purple, url: URL(string: "https://github.com/OpenAHU/AHUTong")),
-        CampusService(title: "智慧安大", subtitle: "统一身份认证与校园服务", symbol: "person.badge.key.fill", color: .teal, url: URL(string: "https://one.ahu.edu.cn")),
-        CampusService(title: "反馈建议", subtitle: "前往项目 Issues", symbol: "bubble.left.and.bubble.right.fill", color: .pink, url: URL(string: "https://github.com/OpenAHU/AHUTong/issues"))
+        CampusService(
+            title: "安徽大学官网",
+            subtitle: "学校通知与新闻",
+            symbol: "building.columns.fill",
+            color: .blue,
+            url: URL(string: "https://www.ahu.edu.cn")
+        ),
+        CampusService(
+            title: "安徽大学教务处",
+            subtitle: "教学通知与教务信息",
+            symbol: "graduationcap.fill",
+            color: .orange,
+            url: URL(string: "https://jwc.ahu.edu.cn/")
+        ),
+        CampusService(
+            title: "超星学习通",
+            subtitle: "在线课程与学习资源",
+            symbol: "books.vertical.fill",
+            color: .green,
+            url: URL(string: "https://www.chaoxing.com/")
+        ),
+        CampusService(
+            title: "安大通项目",
+            subtitle: "查看开源代码",
+            symbol: "chevron.left.forwardslash.chevron.right",
+            color: .purple,
+            url: URL(string: "https://github.com/OpenAHU/AHUTong")
+        ),
+        CampusService(
+            title: "智慧安大",
+            subtitle: "统一身份认证与校园服务",
+            symbol: "person.badge.key.fill",
+            color: .teal,
+            url: URL(string: "https://one.ahu.edu.cn")
+        ),
+        CampusService(
+            title: "反馈建议",
+            subtitle: "前往项目 Issues",
+            symbol: "bubble.left.and.bubble.right.fill",
+            color: .pink,
+            url: URL(string: "https://github.com/OpenAHU/AHUTong/issues")
+        ),
     ]
 
     init(
@@ -58,7 +95,9 @@ final class AppStore: ObservableObject {
         self.campusClient = campusClient
         self.keychain = keychain
         self.notificationScheduler = notificationScheduler
-        if let lastAccountID = UserDefaults.standard.string(forKey: "lastStudentID") {
+        if let lastAccountID = UserDefaults.standard.string(
+            forKey: "lastStudentID"
+        ) {
             try? LocalProfileStorage.migrateLegacyProfile(to: lastAccountID)
         }
     }
@@ -72,21 +111,29 @@ final class AppStore: ObservableObject {
     var averageScore: Double {
         let numeric = grades.filter { $0.score > 0 }
         let credits = numeric.reduce(0) { $0 + $1.credit }
-        return credits == 0 ? 0 : numeric.reduce(0) { $0 + $1.score * $1.credit } / credits
+        return credits == 0
+            ? 0 : numeric.reduce(0) { $0 + $1.score * $1.credit } / credits
     }
 
     var rememberBinding: Binding<Bool> {
-        Binding(get: { self.rememberCredentials }, set: { self.rememberCredentials = $0 })
+        Binding(
+            get: { self.rememberCredentials },
+            set: { self.rememberCredentials = $0 }
+        )
     }
 
     var profileDisplayName: String {
-        let localName = localProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localName = localProfileName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
         return localName.isEmpty ? studentName : localName
     }
 
     func updateLocalProfile(displayName: String, avatarData: Data?) throws {
         let normalizedName = String(
-            displayName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32)
+            displayName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(
+                32
+            )
         )
         try LocalProfileStorage.saveProfile(
             displayName: normalizedName,
@@ -122,7 +169,9 @@ final class AppStore: ObservableObject {
 
     func login() {
         guard sessionPhase != .signingIn else { return }
-        let normalizedID = loginStudentID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let normalizedID = loginStudentID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).uppercased()
         guard !normalizedID.isEmpty, !loginPassword.isEmpty else {
             loginError = "请填写智慧安大账号和密码"
             return
@@ -132,14 +181,25 @@ final class AppStore: ObservableObject {
         Task {
             do {
                 let password = loginPassword
-                let user = try await campusClient.login(studentID: normalizedID, password: password)
+                let user = try await campusClient.login(
+                    studentID: normalizedID,
+                    password: password
+                )
                 studentName = user.name
                 studentID = user.studentID
                 loadLocalProfile(for: user.studentID)
                 loginStudentID = user.studentID
-                UserDefaults.standard.set(user.studentID, forKey: "lastStudentID")
+                UserDefaults.standard.set(
+                    user.studentID,
+                    forKey: "lastStudentID"
+                )
                 if rememberCredentials {
-                    try await keychain.save(StoredCredentials(studentID: user.studentID, password: password))
+                    try await keychain.save(
+                        StoredCredentials(
+                            studentID: user.studentID,
+                            password: password
+                        )
+                    )
                 } else {
                     try await keychain.clear()
                 }
@@ -189,14 +249,36 @@ final class AppStore: ObservableObject {
     private func refreshData() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        let snapshot = await campusClient.loadSnapshot()
-        let shouldFollowCurrentWeek = courses.isEmpty || selectedWeek == currentWeek
+        defer { isRefreshing = false }  // 保证刷新结束时恢复状态
+
+        // 首次尝试加载数据
+        var snapshot = await campusClient.loadSnapshot()
+
+        // 检查警告信息中是否包含 Token/Session 失效提示
+        if isUnauthorized(warnings: snapshot.warnings) {
+            let reloginSuccess = await attemptSilentRelogin()
+            if reloginSuccess {
+                // 登录成功，用新 Session 重新获取数据
+                snapshot = await campusClient.loadSnapshot()
+            } else {
+                // 静默登录失败，退回未登录状态
+                sessionPhase = .signedOut
+                loginError = "登录已过期，自动重新登录失败，请手动登录"
+                return
+            }
+        }
+
+        // 正常更新页面 UI 数据
+        let shouldFollowCurrentWeek =
+            courses.isEmpty || selectedWeek == currentWeek
         if let week = snapshot.currentWeek, (1...totalWeeks).contains(week) {
             currentWeek = week
             if shouldFollowCurrentWeek { selectedWeek = week }
         }
+
         courses = mapCourses(snapshot.courses)
         grades = snapshot.grades.map(mapGrade)
+
         let today = Calendar.current.startOfDay(for: .now)
         exams = snapshot.exams.map(mapExam).sorted { lhs, rhs in
             let lhsUpcoming = lhs.status != "已结束" && lhs.date >= today
@@ -204,13 +286,45 @@ final class AppStore: ObservableObject {
             if lhsUpcoming != rhsUpcoming { return lhsUpcoming }
             return lhsUpcoming ? lhs.date < rhs.date : lhs.date > rhs.date
         }
+
         if let liveBalance = snapshot.balance { balance = liveBalance }
         cardQRCode = snapshot.cardQRCode
         dataWarnings = snapshot.warnings
         lastUpdated = .now
-        isRefreshing = false
 
-        let courseLoadFailed = snapshot.warnings.contains { $0.hasPrefix("课表：") }
+        // 更新课表通知设置
+        await scheduleCourseNotifications(snapshot: snapshot)
+    }
+
+    /// 静默自动登录
+    private func attemptSilentRelogin() async -> Bool {
+        guard let saved = try? await keychain.load() else { return false }
+        do {
+            let user = try await campusClient.login(
+                studentID: saved.studentID,
+                password: saved.password
+            )
+            studentName = user.name
+            studentID = user.studentID
+            sessionPhase = .authenticated
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 判断警告列表中是否包含登录失效的标志
+    private func isUnauthorized(warnings: [String]) -> Bool {
+        warnings.contains { warning in
+            warning.contains("未登录") || warning.contains("登录过期")
+                || warning.contains("Session") || warning.contains("401")
+        }
+    }
+
+    private func scheduleCourseNotifications(snapshot: CampusSnapshot) async {
+        let courseLoadFailed = snapshot.warnings.contains {
+            $0.hasPrefix("课表：")
+        }
         if courseLoadFailed || snapshot.currentWeek == nil {
             courseNotificationStatus = "课表或教学周获取失败，已保留原有提醒"
         } else {
@@ -219,22 +333,27 @@ final class AppStore: ObservableObject {
                 currentWeek: currentWeek
             )
             switch result {
-            case let .scheduled(count):
-                courseNotificationStatus = count == 0
+            case .scheduled(let count):
+                courseNotificationStatus =
+                    count == 0
                     ? "当前没有可安排的后续课程"
                     : "已安排最近 \(count) 次上课提醒"
             case .denied:
                 courseNotificationStatus = "通知权限未开启，请前往系统设置允许通知"
-            case let .failed(message):
+            case .failed(let message):
                 courseNotificationStatus = "通知安排失败：\(message)"
             }
         }
     }
 
     private func mapCourses(_ live: [CampusCourse]) -> [Course] {
-        let colors: [Color] = [.blue, .purple, .orange, .green, .pink, .indigo, .teal, .mint]
+        let colors: [Color] = [
+            .blue, .purple, .orange, .green, .pink, .indigo, .teal, .mint,
+        ]
         return live.map { item in
-            let colorIndex = item.name.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % colors.count }
+            let colorIndex = item.name.unicodeScalars.reduce(0) {
+                ($0 + Int($1.value)) % colors.count
+            }
             return Course(
                 id: item.id,
                 name: item.name,
@@ -249,8 +368,9 @@ final class AppStore: ObservableObject {
             )
         }
         .sorted {
-            ($0.weekday, $0.start, $0.name, $0.weeks, $0.teacher) <
-            ($1.weekday, $1.start, $1.name, $1.weeks, $1.teacher)
+            ($0.weekday, $0.start, $0.name, $0.weeks, $0.teacher) < (
+                $1.weekday, $1.start, $1.name, $1.weeks, $1.teacher
+            )
         }
     }
 
@@ -279,7 +399,9 @@ final class AppStore: ObservableObject {
 
     private func parseExamDate(_ value: String) -> Date? {
         let prefix = String(value.prefix(16))
-        for format in ["yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm", "yyyy年MM月dd日 HH:mm"] {
+        for format in [
+            "yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm", "yyyy年MM月dd日 HH:mm",
+        ] {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "zh_CN")
             formatter.dateFormat = format
