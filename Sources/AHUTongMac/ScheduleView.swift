@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct ScheduleView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var hoveredCourseID: Course.ID?
 
     private let days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     private let periods = CoursePeriod.labels
@@ -77,13 +79,34 @@ struct ScheduleView: View {
 
             GeometryReader { geo in
                 let timeWidth: CGFloat = 72
-                let dayWidth = max(132, (geo.size.width - timeWidth - 24) / CGFloat(days.count))
-                let rowHeight: CGFloat = max(58, (geo.size.height - 54) / CGFloat(store.totalPeriods))
+                let dayWidth = max(
+                    132,
+                    (geo.size.width - timeWidth - 24) / CGFloat(days.count)
+                )
+                let rowHeight: CGFloat = max(
+                    58,
+                    (geo.size.height - 54) / CGFloat(store.totalPeriods)
+                )
+                let fontScale = min(
+                    1.18,
+                    max(0.9, min(dayWidth / 124, rowHeight / 58))
+                )
                 ScrollView([.vertical, .horizontal]) {
                     ZStack(alignment: .topLeading) {
-                        timetableGrid(timeWidth: timeWidth, dayWidth: dayWidth, rowHeight: rowHeight)
+                        timetableGrid(
+                            timeWidth: timeWidth,
+                            dayWidth: dayWidth,
+                            rowHeight: rowHeight,
+                            fontScale: fontScale
+                        )
                         ForEach(visibleCourses) { course in
-                            courseBlock(course, timeWidth: timeWidth, dayWidth: dayWidth, rowHeight: rowHeight)
+                            courseBlock(
+                                course,
+                                timeWidth: timeWidth,
+                                dayWidth: dayWidth,
+                                rowHeight: rowHeight,
+                                fontScale: fontScale
+                            )
                         }
                     }
                     .frame(
@@ -109,7 +132,8 @@ struct ScheduleView: View {
         HStack(spacing: 12) {
             PageHeader(
                 title: "电子课表",
-                subtitle: "共 \(store.totalWeeks) 周 · 当前第 \(store.currentWeek) 周",
+                subtitle:
+                    "共 \(store.totalWeeks) 周 · 当前第 \(store.currentWeek) 周",
                 symbol: "calendar.day.timeline.left"
             )
             Spacer()
@@ -130,7 +154,10 @@ struct ScheduleView: View {
             .frame(minWidth: 78)
 
             Button {
-                store.selectedWeek = min(store.totalWeeks, store.selectedWeek + 1)
+                store.selectedWeek = min(
+                    store.totalWeeks,
+                    store.selectedWeek + 1
+                )
             } label: {
                 Image(systemName: "chevron.right")
             }
@@ -148,7 +175,8 @@ struct ScheduleView: View {
     private func timetableGrid(
         timeWidth: CGFloat,
         dayWidth: CGFloat,
-        rowHeight: CGFloat
+        rowHeight: CGFloat,
+        fontScale: CGFloat
     ) -> some View {
 
         let isCurrentWeek = store.selectedWeek == store.currentWeek
@@ -192,7 +220,7 @@ struct ScheduleView: View {
                 }
                 ForEach(Array(days.enumerated()), id: \.offset) { index, day in
                     Text(day)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: 15 * fontScale, weight: .semibold))
                         .frame(width: dayWidth, height: 54)
                         .offset(x: timeWidth + CGFloat(index) * dayWidth)
                 }
@@ -201,8 +229,18 @@ struct ScheduleView: View {
                     id: \.offset
                 ) { index, time in
                     VStack(spacing: 2) {
-                        Text("\(index + 1)").font(.caption.bold())
-                        Text(time).font(.caption2.monospacedDigit())
+                        Text("\(index + 1)")
+                            .font(
+                                .system(size: 13 * fontScale, weight: .semibold)
+                            )
+                        Text(time)
+                            .font(
+                                .system(
+                                    size: 11 * fontScale,
+                                    weight: .regular,
+                                    design: .monospaced
+                                )
+                            )
                             .foregroundStyle(.secondary)
                     }
                     .frame(width: timeWidth, height: rowHeight)
@@ -255,7 +293,8 @@ struct ScheduleView: View {
         let totalMinutes = currentHour * 60 + currentMinute
         let weekday = calendar.component(.weekday, from: now)
         let currentDayIndex = (weekday == 1) ? 6 : (weekday - 2)
-        let isTodayInSchedule = currentDayIndex >= 0 && currentDayIndex < days.count
+        let isTodayInSchedule =
+            currentDayIndex >= 0 && currentDayIndex < days.count
 
         if let currentY = calculateIndicatorY(
             totalMinutes: totalMinutes,
@@ -271,10 +310,14 @@ struct ScheduleView: View {
                         path.move(to: CGPoint(x: 0, y: currentY))
                         path.addLine(to: CGPoint(x: todayStartX, y: currentY))
                         path.move(to: CGPoint(x: todayEndX, y: currentY))
-                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
+                        path.addLine(
+                            to: CGPoint(x: totalGridWidth, y: currentY)
+                        )
                     } else {
                         path.move(to: CGPoint(x: 0, y: currentY))
-                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
+                        path.addLine(
+                            to: CGPoint(x: totalGridWidth, y: currentY)
+                        )
                     }
                 }
                 .stroke(Color.red.opacity(0.25), lineWidth: 1.5)
@@ -295,40 +338,164 @@ struct ScheduleView: View {
         }
     }
 
-    private func courseBlock(_ course: Course, timeWidth: CGFloat, dayWidth: CGFloat, rowHeight: CGFloat) -> some View {
-        let border = RoundedRectangle(cornerRadius: 10)
+    private func courseBlock(
+        _ course: Course,
+        timeWidth: CGFloat,
+        dayWidth: CGFloat,
+        rowHeight: CGFloat,
+        fontScale: CGFloat
+    ) -> some View {
+        let blockWidth = dayWidth - 8
+        let blockHeight = rowHeight * CGFloat(course.length) - 8
+        let isCompact = blockHeight < 76
+        let horizontalPadding = isCompact ? CGFloat(10) : 14 * fontScale
+        let textWidth = max(0, blockWidth - horizontalPadding)
+        let hasOverflow =
+            isCompact
+            || textExceedsWidth(
+                course.name,
+                fontSize: 14 * fontScale,
+                weight: .bold,
+                width: textWidth * 2
+            )
+            || (!isCompact
+                && [
+                    course.className.isEmpty ? nil : "班级 · \(course.className)",
+                    course.room,
+                    course.teacher.isEmpty ? "教师待公布" : course.teacher,
+                ].compactMap { $0 }.contains {
+                    textExceedsWidth(
+                        $0,
+                        fontSize: 11 * fontScale,
+                        weight: .regular,
+                        width: textWidth
+                    )
+                })
         let xOffset = timeWidth + CGFloat(course.weekday - 1) * dayWidth + 4
         let yOffset = 54 + CGFloat(course.start - 1) * rowHeight + 4
-        return VStack(alignment: .leading, spacing: 3) {
-            Text(course.name).font(.caption.weight(.bold)).lineLimit(2)
-            if !course.className.isEmpty {
-                Text("班级 · \(course.className)")
-                    .font(.caption2.weight(.medium))
+        return ScheduleCourseBlock(
+            course: course,
+            width: blockWidth,
+            height: blockHeight,
+            fontScale: fontScale,
+            isCompact: isCompact,
+            isExpanded: hasOverflow && hoveredCourseID == course.id,
+            xOffset: xOffset,
+            yOffset: yOffset,
+            onHover: { isHovering in
+                if isHovering && hasOverflow {
+                    hoveredCourseID = course.id
+                } else if hoveredCourseID == course.id {
+                    hoveredCourseID = nil
+                }
+            }
+        )
+    }
+
+    private func textExceedsWidth(
+        _ text: String,
+        fontSize: CGFloat,
+        weight: NSFont.Weight,
+        width: CGFloat
+    ) -> Bool {
+        let font = NSFont.systemFont(ofSize: fontSize, weight: weight)
+        return (text as NSString).size(withAttributes: [.font: font]).width
+            > width
+    }
+
+}
+
+private struct ScheduleCourseBlock: View {
+    let course: Course
+    let width: CGFloat
+    let height: CGFloat
+    let fontScale: CGFloat
+    let isCompact: Bool
+    let isExpanded: Bool
+    let xOffset: CGFloat
+    let yOffset: CGFloat
+    let onHover: (Bool) -> Void
+
+    private var border: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 10)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3 * fontScale) {
+            Text(course.name)
+                .font(.system(size: 14 * fontScale, weight: .bold))
+                .lineLimit(isCompact ? 1 : 2)
+            if !isCompact {
+                if !course.className.isEmpty {
+                    Text("班级 · \(course.className)")
+                        .font(.system(size: 11 * fontScale))
+                        .lineLimit(1)
+                }
+                Text(course.room)
+                    .font(.system(size: 11 * fontScale))
+                    .lineLimit(1)
+                Spacer(minLength: 1)
+                Text(course.teacher.isEmpty ? "教师待公布" : course.teacher)
+                    .font(.system(size: 11 * fontScale))
+                    .opacity(0.82)
+                    .lineLimit(1)
+            } else {
+                Text(course.room)
+                    .font(.system(size: 11 * fontScale))
                     .lineLimit(1)
             }
-            Text(course.room).font(.caption2).lineLimit(1)
-            Spacer(minLength: 1)
-            Text(course.teacher.isEmpty ? "教师待公布" : course.teacher)
-                .font(.caption2)
-                .opacity(0.82)
         }
         .foregroundStyle(course.color)
-        .padding(7)
-        .frame(width: dayWidth - 8, height: rowHeight * CGFloat(course.length) - 8, alignment: .topLeading)
+        .padding(isCompact ? 5 : 7 * fontScale)
+        .frame(width: width, height: height, alignment: .topLeading)
         .background(course.color.opacity(0.13), in: border)
         .overlay(border.stroke(course.color.opacity(0.25)))
+        .overlay(alignment: .topLeading) {
+            if isExpanded {
+                expandedDetails
+                    .offset(x: -4, y: -4)
+                    .onHover(perform: onHover)
+                    .transition(
+                        .opacity.combined(
+                            with: .scale(scale: 0.96, anchor: .topLeading)
+                        )
+                    )
+            }
+        }
+        .onHover(perform: onHover)
         .offset(x: xOffset, y: yOffset)
-        .help(courseHelp(course))
+        .zIndex(isExpanded ? 1 : 0)
+        .animation(.easeOut(duration: 0.16), value: isExpanded)
     }
 
-    private func courseHelp(_ course: Course) -> String {
-        var lines = [course.name]
-        if !course.className.isEmpty { lines.append("班级：\(course.className)") }
-        lines.append("教师：\(course.teacher.isEmpty ? "待公布" : course.teacher)")
-        lines.append("地点：\(course.room)")
-        lines.append("周次：\(course.weeks.isEmpty ? "待公布" : course.weeks)")
-        lines.append("节次：\(course.start)-\(course.end)")
-        return lines.joined(separator: "\n")
+    private var expandedDetails: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(course.name)
+                .font(.system(size: 14 * fontScale, weight: .bold))
+                .fixedSize(horizontal: false, vertical: true)
+            detailLine(
+                "班级",
+                value: course.className.isEmpty ? "未公布" : course.className
+            )
+            detailLine(
+                "教师",
+                value: course.teacher.isEmpty ? "待公布" : course.teacher
+            )
+            detailLine("地点", value: course.room)
+            detailLine("周次", value: course.weeks.isEmpty ? "待公布" : course.weeks)
+            detailLine("节次", value: "\(course.start)-\(course.end)")
+        }
+        .foregroundStyle(course.color)
+        .padding(10)
+        .frame(width: max(width * 1.2, 190), alignment: .leading)
+        .background(.white, in: border)
+        .overlay(border.stroke(course.color.opacity(0.55), lineWidth: 1.5))
+        // .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
     }
 
+    private func detailLine(_ title: String, value: String) -> some View {
+        Text("\(title) · \(value)")
+            .font(.system(size: 11 * fontScale))
+            .fixedSize(horizontal: false, vertical: true)
+    }
 }

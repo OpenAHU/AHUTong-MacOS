@@ -21,7 +21,7 @@ struct CampusCardView: View {
                 .cardStyle()
             }
             .padding(28)
-            .frame(maxWidth: 1050, alignment: .leading)
+            .frame(maxWidth: 1100, alignment: .leading)
         }
     }
 
