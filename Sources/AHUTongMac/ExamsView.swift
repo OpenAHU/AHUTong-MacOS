@@ -47,7 +47,7 @@ struct ExamsView: View {
                 }
             }
             .padding(28)
-            .frame(maxWidth: 1000)
+            .frame(maxWidth: 1100)
             .frame(maxWidth: .infinity, alignment: .top)
         }
     }
