@@ -23,7 +23,7 @@ impl AHUClient {
 
         #[cfg(not(target_arch = "wasm32"))]
         let http = ClientBuilder::new()
-            .connect_timeout(std::time::Duration::from_secs(5))
+            .connect_timeout(std::time::Duration::from_secs(20))
             .timeout(std::time::Duration::from_secs(300))
             .cookie_provider(cookie_store.clone())
             .redirect(reqwest::redirect::Policy::limited(10))

@@ -20,6 +20,7 @@ fn classify(error: &anyhow::Error) -> PublicError {
     match error.to_string().as_str() {
         "campus_login_rejected" => PublicError::LoginRejected,
         "auth_code_unavailable"
+        | "captcha_service_unavailable"
         | "cas_parameter_parse_failed"
         | "jwxt_redirect_mismatch"
         | "ycard_redirect_failed"
@@ -147,6 +148,20 @@ mod tests {
         let body = to_bytes(unavailable.into_body(), usize::MAX)
             .await
             .expect("read response body");
+        assert_eq!(
+            String::from_utf8(body.to_vec()).expect("utf8 JSON body"),
+            r#"{"error":"campus_service_unavailable"}"#
+        );
+
+        let captcha_unavailable =
+            AppError::Anyhow(anyhow::anyhow!("captcha_service_unavailable")).into_response();
+        assert_eq!(
+            captcha_unavailable.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let body = to_bytes(captcha_unavailable.into_body(), usize::MAX)
+            .await
+            .expect("read captcha service response body");
         assert_eq!(
             String::from_utf8(body.to_vec()).expect("utf8 JSON body"),
             r#"{"error":"campus_service_unavailable"}"#

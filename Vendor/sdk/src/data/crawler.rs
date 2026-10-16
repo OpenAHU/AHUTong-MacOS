@@ -31,6 +31,7 @@ impl Crawler {
         info!("Starting login flow");
         let mut login_success_info: Option<Value> = None;
         let mut fetched_auth_code = false;
+        let mut solved_captcha = false;
         for i in 0..5 {
             info!("ADWMH login attempt {}/5", i + 1);
             let auth_code_bytes = match self.client.get_auth_code().await {
@@ -47,7 +48,7 @@ impl Crawler {
 
             let captcha_res = self
                 .client
-                .get_captcha_result("https://118.25.8.226/ocr/captcha", auth_code_bytes.to_vec())
+                .get_captcha_result(auth_code_bytes.to_vec())
                 .await;
 
             let captcha_code = match captcha_res {
@@ -62,6 +63,7 @@ impl Crawler {
                 warn!("Captcha recognition failed (empty result), retrying...");
                 continue;
             }
+            solved_captcha = true;
             debug!("Captcha recognition succeeded");
 
             let adwmh_login = self
@@ -81,6 +83,8 @@ impl Crawler {
         let login_info = login_success_info.ok_or_else(|| {
             if !fetched_auth_code {
                 anyhow!("auth_code_unavailable")
+            } else if !solved_captcha {
+                anyhow!("captcha_service_unavailable")
             } else {
                 anyhow!("campus_login_rejected")
             }

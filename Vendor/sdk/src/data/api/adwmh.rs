@@ -4,6 +4,7 @@ use reqwest::multipart;
 use serde_json::Value;
 
 const BASE_URL: &str = "https://adwmh.ahu.edu.cn";
+const CAPTCHA_OCR_URL: &str = "https://openahu.org/ocr/captcha";
 
 impl AHUClient {
     // @GET("/remind/authcode")
@@ -68,34 +69,30 @@ impl AHUClient {
             .await
     }
 
-    pub async fn get_captcha_result(
-        &self,
-        url: &str,
-        image_bytes: Vec<u8>,
-    ) -> reqwest::Result<Value> {
+    pub async fn get_captcha_result(&self, image_bytes: Vec<u8>) -> reqwest::Result<Value> {
         let part = multipart::Part::bytes(image_bytes)
             .file_name("img.jpg")
             .mime_str("image/jpg")?;
 
         let form = multipart::Form::new().part("captcha", part);
 
-        // 使用临时的 Client，避免复用主 Client 的 Cookie 和配置
-        // 强制使用 HTTP/1.1，因为 Flask 开发服务器可能不支持 HTTP/2
-        // 添加 User-Agent 和 Connection: close 以提高兼容性
+        // 使用临时 Client，避免把校园系统 Cookie 发送到验证码服务。
+        // OCR 已迁移到具有有效 HTTPS 证书的 openahu.org，不再连接旧 IP
+        // 或手动覆盖 Host。
         #[cfg(not(target_arch = "wasm32"))]
         let client = reqwest::Client::builder()
             .http1_only()
-            .danger_accept_invalid_certs(true)
-            .user_agent("AHUTong/Android")
+            .connect_timeout(std::time::Duration::from_secs(20))
+            .timeout(std::time::Duration::from_secs(120))
+            .user_agent("AHUTong/RustSDK")
             .build()?;
 
         #[cfg(target_arch = "wasm32")]
         let client = reqwest::Client::builder().build()?;
 
         client
-            .post(url)
-            .header("Connection", "close")
-            .header("Host", "openahu.org")
+            .post(CAPTCHA_OCR_URL)
+            .header("Accept", "*/*")
             .multipart(form)
             .send()
             .await?
