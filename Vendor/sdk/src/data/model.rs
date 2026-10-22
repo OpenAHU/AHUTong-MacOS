@@ -38,6 +38,14 @@ pub struct Course {
     pub course_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleSemester {
+    pub id: i32,
+    pub name: String,
+    pub current: bool,
+}
+
 // Grade 和 Exam 暂时不需要改，因为我们还没有迁移这两个功能
 // 但为了将来准备，建议也按照 Android 端的字段名进行对齐
 #[derive(Debug, Serialize, Deserialize, Clone)]

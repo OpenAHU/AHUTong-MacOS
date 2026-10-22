@@ -17,6 +17,7 @@ enum CampusClientError: LocalizedError, Sendable {
     case startup(String)
     case invalidResponse
     case invalidCredentials
+    case sessionExpired
     case service(String)
     case security(String)
 
@@ -25,6 +26,7 @@ enum CampusClientError: LocalizedError, Sendable {
         case let .startup(message): "校园数据服务启动失败：\(message)"
         case .invalidResponse: "学校服务返回了无法识别的数据"
         case .invalidCredentials: "账号、密码或验证码不正确"
+        case .sessionExpired: "校园登录已过期，请重新登录"
         case let .service(message): message
         case let .security(message): message
         }
@@ -48,6 +50,25 @@ struct CampusCourse: Identifiable, Sendable {
     let weeks: [Int]
 }
 
+struct CampusScheduleSemester: Identifiable, Decodable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let current: Bool
+
+    private enum CodingKeys: String, CodingKey { case id, name, current }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let numericID = try? container.decode(Int.self, forKey: .id) {
+            id = String(numericID)
+        } else {
+            id = try container.decode(String.self, forKey: .id)
+        }
+        name = try container.decode(String.self, forKey: .name)
+        current = try container.decodeIfPresent(Bool.self, forKey: .current) ?? false
+    }
+}
+
 struct CampusGrade: Identifiable, Sendable {
     let id: String
     let name: String
@@ -56,6 +77,8 @@ struct CampusGrade: Identifiable, Sendable {
     let point: Double
     let type: String
     let semester: String
+    let semesterID: String
+    let detail: String
 }
 
 struct CampusExamItem: Identifiable, Sendable {
@@ -75,6 +98,7 @@ struct CampusSnapshot: Sendable {
     var balance: Double?
     var cardQRCode: String?
     var warnings: [String]
+    var sessionExpired = false
 }
 
 private struct CampusWebCookie: Decodable, Sendable {
@@ -113,8 +137,10 @@ actor CampusCoreClient {
     private var token: String?
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, baseURL: URL? = nil, token: String? = nil) {
         self.session = session
+        self.baseURL = baseURL
+        self.token = token
     }
 
     func prepare() throws {
@@ -181,19 +207,25 @@ actor CampusCoreClient {
             cardQRCode: nil,
             warnings: []
         )
+        func recordFailure(_ label: String, _ error: Error) {
+            snapshot.warnings.append("\(label)：\(safeMessage(error))")
+            if let error = error as? CampusClientError, case .sessionExpired = error {
+                snapshot.sessionExpired = true
+            }
+        }
 
         do { snapshot.currentWeek = try await currentWeek() }
-        catch { snapshot.warnings.append("教学周：\(safeMessage(error))") }
+        catch { recordFailure("教学周", error) }
         do { snapshot.courses = try await courses() }
-        catch { snapshot.warnings.append("课表：\(safeMessage(error))") }
+        catch { recordFailure("课表", error) }
         do { snapshot.grades = try await grades() }
-        catch { snapshot.warnings.append("成绩：\(safeMessage(error))") }
+        catch { recordFailure("成绩", error) }
         do { snapshot.exams = try await exams() }
-        catch { snapshot.warnings.append("考试：\(safeMessage(error))") }
+        catch { recordFailure("考试", error) }
         do { snapshot.balance = try await balance() }
-        catch { snapshot.warnings.append("校园卡余额：\(safeMessage(error))") }
+        catch { recordFailure("校园卡余额", error) }
         do { snapshot.cardQRCode = try await cardQRCode() }
-        catch { snapshot.warnings.append("校园卡二维码：\(safeMessage(error))") }
+        catch { recordFailure("校园卡二维码", error) }
         return snapshot
     }
 
@@ -261,8 +293,26 @@ actor CampusCoreClient {
         return week
     }
 
-    private func courses() async throws -> [CampusCourse] {
-        let data = try await request(path: "/schedule")
+    func courses(nextSemester: Bool = false) async throws -> [CampusCourse] {
+        let data = try await request(path: nextSemester ? "/schedule/next" : "/schedule")
+        return try parseCourses(data)
+    }
+
+    func scheduleSemesters() async throws -> [CampusScheduleSemester] {
+        let data = try await request(path: "/schedule/semesters")
+        return try JSONDecoder().decode([CampusScheduleSemester].self, from: data)
+            .filter { !$0.id.isEmpty && !$0.name.isEmpty }
+    }
+
+    func courses(semesterID: String) async throws -> [CampusCourse] {
+        guard Int(semesterID) != nil else { throw CampusClientError.invalidResponse }
+        let data = try await request(path: "/schedule", queryItems: [
+            URLQueryItem(name: "semester_id", value: semesterID)
+        ])
+        return try parseCourses(data)
+    }
+
+    private func parseCourses(_ data: Data) throws -> [CampusCourse] {
         guard let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw CampusClientError.invalidResponse
         }
@@ -290,32 +340,28 @@ actor CampusCoreClient {
         }
     }
 
+    func gradeProfiles() async throws -> [GradeProfile] {
+        try AcademicPayload.profiles(await request(path: "/grade/profiles"))
+    }
+
+    func gradeReport(profileID: String? = nil) async throws -> GradeReport {
+        let query = profileID.map { [URLQueryItem(name: "student_id", value: $0)] } ?? []
+        return try AcademicPayload.grades(await request(path: "/grade", queryItems: query))
+    }
+
+    func gradeRank(profileID: String) async throws -> GradeRank? {
+        try AcademicPayload.rank(await request(path: "/grade/rank", queryItems: [
+            URLQueryItem(name: "student_id", value: profileID)
+        ]))
+    }
+
     private func grades() async throws -> [CampusGrade] {
-        let data = try await request(path: "/grade")
-        let object = try JSONSerialization.jsonObject(with: data)
-        let candidates = dictionaries(in: object).filter { item in
-            let keys = Set(item.keys)
-            return !keys.isDisjoint(with: ["courseName", "courseNameZh", "lessonName", "course"])
-                && !keys.isDisjoint(with: ["grade", "score", "gaGrade", "gradePoint"])
-        }
-        var seen = Set<String>()
-        return candidates.compactMap { item in
-            let name = firstString(["courseName", "courseNameZh", "lessonName", "course"], in: item)
-            guard !name.isEmpty else { return nil }
-            let code = firstString(["courseCode", "lessonCode", "courseNum"], in: item)
-            let semester = firstString(["semesterName", "term"], in: item)
-            let id = "\(code)|\(name)|\(semester)"
-            guard seen.insert(id).inserted else { return nil }
-            return CampusGrade(
-                id: id,
-                name: name,
-                credit: firstNumber(["credit", "credits"], in: item) ?? 0,
-                score: firstString(["grade", "score", "gaGrade"], in: item),
-                point: firstNumber(["gradePoint", "gp"], in: item) ?? 0,
-                type: firstString(["courseProperty", "courseType", "courseNature"], in: item),
-                semester: semester
-            )
-        }
+        try await gradeReport().grades
+    }
+
+    func refreshCardAuthorization() async throws {
+        // The token remains inside the local service and is never shown or persisted by Swift.
+        _ = try await request(path: "/ycard/refresh_token", method: "POST")
     }
 
     private func exams() async throws -> [CampusExamItem] {
@@ -338,7 +384,7 @@ actor CampusCoreClient {
         }
     }
 
-    private func balance() async throws -> Double {
+    func balance() async throws -> Double {
         let data = try await request(path: "/ycard/balance")
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               number(root["code"]).map(Int.init) == 10_000,
@@ -348,7 +394,7 @@ actor CampusCoreClient {
         return result
     }
 
-    private func cardQRCode() async throws -> String {
+    func cardQRCode() async throws -> String {
         let data = try await request(path: "/ycard/qrcode")
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               number(root["code"]).map(Int.init) == 10_000 else {
@@ -363,11 +409,15 @@ actor CampusCoreClient {
         path: String,
         method: String = "GET",
         json: [String: String]? = nil,
+        queryItems: [URLQueryItem] = [],
         timeout: TimeInterval = 60
     ) async throws -> Data {
         try prepare()
         guard let baseURL, let token else { throw CampusClientError.startup("服务未就绪") }
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        if !queryItems.isEmpty { components?.queryItems = queryItems }
+        guard let url = components?.url else { throw CampusClientError.invalidResponse }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue(token, forHTTPHeaderField: "X-AHUTONG-TOKEN")
@@ -377,10 +427,10 @@ actor CampusCoreClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw CampusClientError.invalidResponse }
-        if response.statusCode == 401 { throw CampusClientError.invalidCredentials }
         guard (200..<300).contains(response.statusCode) else {
             let code = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             switch code {
+            case "campus_session_expired": throw CampusClientError.sessionExpired
             case "campus_login_rejected": throw CampusClientError.invalidCredentials
             case "campus_service_unavailable", "campus_service_error":
                 throw CampusClientError.service("学校服务暂时不可用，请稍后重试")
@@ -412,7 +462,7 @@ actor CampusCoreClient {
             .filter { $0.matches(url) }
             .map { "\($0.name)=\($0.value)" }
             .joined(separator: "; ")
-        guard !cookieHeader.isEmpty else { throw CampusClientError.invalidCredentials }
+        guard !cookieHeader.isEmpty else { throw CampusClientError.sessionExpired }
         webRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
 
         let (data, response) = try await session.data(for: webRequest)
@@ -420,11 +470,11 @@ actor CampusCoreClient {
             throw CampusClientError.invalidResponse
         }
         if response.statusCode == 401 || response.statusCode == 403 {
-            throw CampusClientError.invalidCredentials
+            throw CampusClientError.sessionExpired
         }
         if response.url?.host?.lowercased() != url.host?.lowercased()
             || response.url?.path.lowercased().contains("/cas/login") == true {
-            throw CampusClientError.service("教务系统登录状态已失效，请退出后重新登录")
+            throw CampusClientError.sessionExpired
         }
         guard (200..<300).contains(response.statusCode) else {
             throw CampusClientError.service("教务系统请求失败（\(response.statusCode)）")
@@ -463,19 +513,6 @@ actor CampusCoreClient {
             if !value.isEmpty { return value }
         }
         return ""
-    }
-
-    private func firstNumber(_ keys: [String], in object: [String: Any]) -> Double? {
-        for key in keys where number(object[key]) != nil { return number(object[key]) }
-        return nil
-    }
-
-    private func dictionaries(in value: Any) -> [[String: Any]] {
-        if let object = value as? [String: Any] {
-            return [object] + object.values.flatMap(dictionaries)
-        }
-        if let array = value as? [Any] { return array.flatMap(dictionaries) }
-        return []
     }
 
     private func findInt(keys: [String], in value: Any) -> Int? {

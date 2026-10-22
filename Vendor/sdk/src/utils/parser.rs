@@ -106,6 +106,18 @@ mod semester_tests {
             Some(160)
         );
     }
+
+    #[test]
+    fn parses_all_semester_options_for_history_selection() {
+        let html = r#"<script>const semesters = JSON.parse('[{\"id\":100,\"name\":\"2024-2025-2\"},{\"id\":120,\"name\":\"2025-2026-1\"}]');</script>"#;
+        assert_eq!(
+            Parser::parse_semester_options(html),
+            Some(vec![
+                (100, "2024-2025-2".to_string()),
+                (120, "2025-2026-1".to_string())
+            ])
+        );
+    }
 }
 
 pub struct Parser;
@@ -460,31 +472,38 @@ impl Parser {
             .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
     }
 
-    pub fn resolve_next_semester_id(
-        html: &str,
-        current_id: i32,
-        current_name: &str,
-    ) -> Option<i32> {
+    pub fn parse_semester_options(html: &str) -> Option<Vec<(i32, String)>> {
         let mut serialized = Self::parse_semesters_list(html)?;
-        let mut semesters = None;
         for _ in 0..3 {
             if let Ok(parsed) = serde_json::from_str::<Vec<SemesterOption>>(&serialized) {
-                semesters = Some(parsed);
-                break;
+                return Some(
+                    parsed
+                        .into_iter()
+                        .map(|value| (value.id, value.name))
+                        .collect(),
+                );
             }
             serialized = serialized
                 .replace("\\\"", "\"")
                 .replace("\\'", "'")
                 .replace("&quot;", "\"");
         }
-        let semesters = semesters?;
+        None
+    }
+
+    pub fn resolve_next_semester_id(
+        html: &str,
+        current_id: i32,
+        current_name: &str,
+    ) -> Option<i32> {
+        let semesters = Self::parse_semester_options(html)?;
 
         if let Some(current_order) = semester_order(current_name) {
             if let Some(next) = semesters
                 .iter()
-                .filter_map(|semester| {
-                    let order = semester_order(&semester.name)?;
-                    (order > current_order).then_some((order, semester.id))
+                .filter_map(|(id, name)| {
+                    let order = semester_order(name)?;
+                    (order > current_order).then_some((order, *id))
                 })
                 .min_by_key(|(order, _)| *order)
             {
@@ -494,9 +513,9 @@ impl Parser {
 
         semesters
             .into_iter()
-            .filter(|semester| semester.id > current_id)
-            .min_by_key(|semester| semester.id)
-            .map(|semester| semester.id)
+            .filter(|(id, _)| *id > current_id)
+            .min_by_key(|(id, _)| *id)
+            .map(|(id, _)| id)
     }
 
     /// Parse exam info from the new server-rendered HTML table format.

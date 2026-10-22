@@ -81,10 +81,28 @@ pub async fn login(
 pub async fn schedule(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<ScheduleQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     check_token(&headers, &state)?;
-    let courses = core::crawler().get_schedule().await?;
+    let courses = match query.semester_id {
+        Some(id) => core::crawler().get_schedule_for_semester(id).await?,
+        None => core::crawler().get_schedule().await?,
+    };
     Ok((StatusCode::OK, Json(courses)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScheduleQuery {
+    pub semester_id: Option<i32>,
+}
+
+pub async fn schedule_semesters(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    check_token(&headers, &state)?;
+    let semesters = core::crawler().get_schedule_semesters().await?;
+    Ok((StatusCode::OK, Json(semesters)))
 }
 
 pub async fn current_week(

@@ -23,6 +23,8 @@ final class AppStore: ObservableObject {
     @Published var loginError: String?
     @Published var dataWarnings: [String] = []
     @Published var cardQRCode: String?
+    @Published private(set) var isRefreshingCard = false
+    @Published private(set) var cardError: String?
     @Published var courses: [Course] = []
     @Published var grades: [Grade] = []
     @Published var exams: [Exam] = []
@@ -37,9 +39,11 @@ final class AppStore: ObservableObject {
     let totalWeeks = 20
     let totalPeriods = 13
 
-    private let campusClient: CampusCoreClient
+    let campusClient: CampusCoreClient
     private let keychain: KeychainVault
     private let notificationScheduler: CourseNotificationScheduler
+    private var silentReloginTask: Task<Bool, Never>?
+    private var silentReloginRevision = UUID()
 
     let transactions: [CardTransaction] = []
     let services: [CampusService] = [
@@ -219,6 +223,10 @@ final class AppStore: ObservableObject {
     }
 
     func signOut() {
+        sessionPhase = .signedOut
+        silentReloginTask?.cancel()
+        silentReloginTask = nil
+        silentReloginRevision = UUID()
         Task {
             try? await keychain.clear()
             courses = []
@@ -226,6 +234,7 @@ final class AppStore: ObservableObject {
             exams = []
             balance = 0
             cardQRCode = nil
+            cardError = nil
             dataWarnings = []
             studentName = "安大学生"
             studentID = ""
@@ -240,6 +249,38 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func refreshCampusCard(renewAuthorization: Bool = false) async {
+        guard !isRefreshingCard, sessionPhase == .authenticated else { return }
+        let accountID = studentID
+        isRefreshingCard = true
+        cardError = nil
+        defer { isRefreshingCard = false }
+        cardQRCode = nil
+        do {
+            if renewAuthorization {
+                try await performCampusRequest { try await $0.refreshCardAuthorization() }
+            }
+            var failures: [String] = []
+            do {
+                let newBalance = try await performCampusRequest { try await $0.balance() }
+                balance = newBalance
+            } catch is CancellationError { throw CancellationError() }
+            catch { failures.append("余额：\(error.localizedDescription)") }
+            do {
+                let newCode = try await performCampusRequest { try await $0.cardQRCode() }
+                cardQRCode = newCode
+            } catch is CancellationError { throw CancellationError() }
+            catch { failures.append("付款码：\(error.localizedDescription)") }
+            guard studentID == accountID, sessionPhase == .authenticated else { return }
+            cardError = failures.isEmpty ? nil : failures.joined(separator: "；")
+        } catch is CancellationError {
+            return
+        } catch {
+            guard studentID == accountID, sessionPhase == .authenticated else { return }
+            cardError = error.localizedDescription
+        }
+    }
+
     private func loadLocalProfile(for accountID: String) {
         let profile = LocalProfileStorage.loadProfile(for: accountID)
         localProfileName = profile.displayName
@@ -248,15 +289,18 @@ final class AppStore: ObservableObject {
 
     private func refreshData() async {
         guard !isRefreshing else { return }
+        let accountID = studentID
         isRefreshing = true
         defer { isRefreshing = false }  // 保证刷新结束时恢复状态
 
         // 首次尝试加载数据
         var snapshot = await campusClient.loadSnapshot()
+        guard studentID == accountID, sessionPhase == .authenticated else { return }
 
-        // 检查警告信息中是否包含 Token/Session 失效提示
-        if isUnauthorized(warnings: snapshot.warnings) {
+        // 使用 SDK 的明确错误类型判断会话失效，不根据提示文案猜测。
+        if snapshot.sessionExpired {
             let reloginSuccess = await attemptSilentRelogin()
+            guard studentID == accountID, sessionPhase == .authenticated else { return }
             if reloginSuccess {
                 // 登录成功，用新 Session 重新获取数据
                 snapshot = await campusClient.loadSnapshot()
@@ -267,6 +311,7 @@ final class AppStore: ObservableObject {
                 return
             }
         }
+        guard studentID == accountID, sessionPhase == .authenticated else { return }
 
         // 正常更新页面 UI 数据
         let shouldFollowCurrentWeek =
@@ -297,28 +342,27 @@ final class AppStore: ObservableObject {
     }
 
     /// 静默自动登录
-    private func attemptSilentRelogin() async -> Bool {
-        guard let saved = try? await keychain.load() else { return false }
-        do {
-            let user = try await campusClient.login(
-                studentID: saved.studentID,
-                password: saved.password
-            )
-            studentName = user.name
-            studentID = user.studentID
-            sessionPhase = .authenticated
-            return true
-        } catch {
-            return false
+    func attemptSilentRelogin() async -> Bool {
+        if let task = silentReloginTask { return await task.value }
+        let accountID = studentID
+        let revision = UUID()
+        silentReloginRevision = revision
+        let task = Task { [self] in
+            guard let saved = try? await keychain.load(),
+                  saved.studentID == accountID, !Task.isCancelled else { return false }
+            do {
+                let user = try await campusClient.login(studentID: saved.studentID, password: saved.password)
+                guard !Task.isCancelled, studentID == accountID, sessionPhase == .authenticated else { return false }
+                studentName = user.name
+                return true
+            } catch {
+                return false
+            }
         }
-    }
-
-    /// 判断警告列表中是否包含登录失效的标志
-    private func isUnauthorized(warnings: [String]) -> Bool {
-        warnings.contains { warning in
-            warning.contains("未登录") || warning.contains("登录过期")
-                || warning.contains("Session") || warning.contains("401")
-        }
+        silentReloginTask = task
+        let success = await task.value
+        if silentReloginRevision == revision { silentReloginTask = nil }
+        return success
     }
 
     private func scheduleCourseNotifications(snapshot: CampusSnapshot) async {
@@ -346,7 +390,7 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func mapCourses(_ live: [CampusCourse]) -> [Course] {
+    func mapCourses(_ live: [CampusCourse]) -> [Course] {
         let colors: [Color] = [
             .blue, .purple, .orange, .green, .pink, .indigo, .teal, .mint,
         ]

@@ -12,6 +12,15 @@ struct CampusCardView: View {
                     cardVisual
                     qrPanel.frame(width: 280)
                 }
+                HStack(spacing: 12) {
+                    Button("重新授权校园卡") {
+                        Task { await store.refreshCampusCard(renewAuthorization: true) }
+                    }.buttonStyle(.bordered).disabled(store.isRefreshingCard)
+                    if store.isRefreshingCard { ProgressView().controlSize(.small) }
+                    if let error = store.cardError {
+                        Text(error).font(.caption).foregroundStyle(.orange)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 11) {
                     Label("安全提示", systemImage: "lock.shield.fill")
                         .font(.headline).foregroundStyle(.green)
@@ -76,7 +85,8 @@ struct CampusCardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text("付款码暂不可用").font(.caption).foregroundStyle(.secondary)
             }
-            Button("刷新付款码") { store.refresh() }.buttonStyle(.bordered)
+            Button("刷新付款码") { Task { await store.refreshCampusCard() } }
+                .buttonStyle(.bordered).disabled(store.isRefreshingCard)
         }
         .cardStyle()
         .frame(minHeight: 280)

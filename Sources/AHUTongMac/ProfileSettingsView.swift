@@ -44,7 +44,7 @@ struct ProfileSettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 240)
                 }
-                LabeledContent("智慧安大学号", value: store.studentID)
+                LabeledContent("学号", value: store.studentID)
             }
             .formStyle(.grouped)
 

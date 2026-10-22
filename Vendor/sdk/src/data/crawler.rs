@@ -1,5 +1,5 @@
 use crate::data::api::client::AHUClient;
-use crate::data::model::{Course, Exam, User};
+use crate::data::model::{Course, Exam, ScheduleSemester, User};
 use crate::utils::des::DES;
 use crate::utils::parser::Parser;
 use anyhow::{Context, Result, anyhow};
@@ -179,6 +179,49 @@ impl Crawler {
         self.get_schedule_with_semester_offset(20).await
     }
 
+    pub async fn get_schedule_semesters(&self) -> Result<Vec<ScheduleSemester>> {
+        let html = self.client.fetch_course_table_basic_info().await?;
+        let (current_id, current_name) = Parser::parse_current_semester(&html)
+            .ok_or_else(|| anyhow!("Failed to parse current semester ID"))?;
+        let mut semesters = Parser::parse_semester_options(&html)
+            .unwrap_or_else(|| vec![(current_id, current_name.clone())])
+            .into_iter()
+            .map(|(id, name)| ScheduleSemester {
+                id,
+                name,
+                current: id == current_id,
+            })
+            .collect::<Vec<_>>();
+        if !semesters.iter().any(|semester| semester.id == current_id) {
+            semesters.push(ScheduleSemester {
+                id: current_id,
+                name: current_name,
+                current: true,
+            });
+        }
+        semesters.sort_by(|left, right| {
+            right
+                .name
+                .cmp(&left.name)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        let mut seen = std::collections::HashSet::new();
+        semesters.retain(|semester| seen.insert(semester.id));
+        Ok(semesters)
+    }
+
+    pub async fn get_schedule_for_semester(&self, target_semester_id: i32) -> Result<Vec<Course>> {
+        let html = self.client.fetch_course_table_basic_info().await?;
+        let (current_id, _) = Parser::parse_current_semester(&html)
+            .ok_or_else(|| anyhow!("Failed to parse current semester ID"))?;
+        let valid = Parser::parse_semester_options(&html)
+            .is_some_and(|values| values.iter().any(|(id, _)| *id == target_semester_id));
+        if !valid && target_semester_id != current_id {
+            return Err(anyhow!("schedule_semester_invalid"));
+        }
+        self.load_schedule(target_semester_id, current_id).await
+    }
+
     async fn get_schedule_with_semester_offset(&self, semester_offset: i32) -> Result<Vec<Course>> {
         info!("[RustSDKSchedule] Starting get_schedule...");
         self.client.log_current_cookies();
@@ -216,9 +259,17 @@ impl Crawler {
             "[RustSDKSchedule] Resolved target semester id={}",
             target_semester_id
         );
+        self.load_schedule(target_semester_id, semester_id).await
+    }
+
+    async fn load_schedule(
+        &self,
+        target_semester_id: i32,
+        current_semester_id: i32,
+    ) -> Result<Vec<Course>> {
         let course_json = self
             .client
-            .get_course(target_semester_id, semester_id, false)
+            .get_course(target_semester_id, current_semester_id, false)
             .await?;
         debug!("[RustSDKSchedule] Course response received");
 

@@ -3,7 +3,42 @@ import SwiftUI
 
 struct ScheduleView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var semesters: [CampusScheduleSemester] = []
+    @State private var selectedSemesterID = ""
+    @State private var semesterWeeks: [String: Int] = [:]
+    @State private var selectedSemesterCourses: [Course] = []
+    @State private var isLoadingSemesters = false
+    @State private var isLoadingSchedule = false
+    @State private var semesterError: String?
+    @State private var scheduleError: String?
+    @State private var semesterListRevision = 0
+    @State private var scheduleRevision = 0
+    @State private var semesterAccountID = ""
     @State private var hoveredCourseID: Course.ID?
+
+    private var currentSemesterID: String {
+        semesters.first(where: \.current)?.id ?? ""
+    }
+    private var isCurrentSemester: Bool {
+        selectedSemesterID.isEmpty || selectedSemesterID == currentSemesterID
+    }
+    private var selectedSemester: CampusScheduleSemester? {
+        semesters.first { $0.id == selectedSemesterID }
+    }
+    private var displayedCourses: [Course] {
+        isCurrentSemester ? store.courses : selectedSemesterCourses
+    }
+
+    private var displayedWeek: Int {
+        get { isCurrentSemester ? store.selectedWeek : semesterWeeks[selectedSemesterID, default: 1] }
+        nonmutating set {
+            if isCurrentSemester { store.selectedWeek = newValue }
+            else { semesterWeeks[selectedSemesterID] = newValue }
+        }
+    }
+    private var displayedTotalWeeks: Int {
+        max(store.totalWeeks, displayedCourses.flatMap(\.weekIndexes).max() ?? 1)
+    }
 
     private let days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     private let periods = CoursePeriod.labels
@@ -69,12 +104,32 @@ struct ScheduleView: View {
     }
 
     private var visibleCourses: [Course] {
-        store.courses.filter { $0.isActive(in: store.selectedWeek) }
+        displayedCourses.filter { $0.isActive(in: displayedWeek) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if !isCurrentSemester || semesterError != nil {
+                HStack {
+                    Label(
+                        semesterError ?? "正在查看 \(selectedSemester?.name ?? "所选学期")，不会影响本学期课程和上课提醒",
+                        systemImage: semesterError == nil ? "info.circle" : "exclamationmark.triangle"
+                    )
+                    Spacer()
+                    if semesterError != nil {
+                        Button("重试学期列表") { semesterListRevision += 1 }
+                            .disabled(isLoadingSemesters)
+                    }
+                    Button("刷新课表") {
+                        if isCurrentSemester { store.refresh() }
+                        else { scheduleRevision += 1 }
+                    }
+                    .disabled(isLoadingSchedule || store.isRefreshing)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 26).padding(.bottom, 12)
+            }
             Divider()
 
             GeometryReader { geo in
@@ -116,15 +171,71 @@ struct ScheduleView: View {
                     .padding(.horizontal, 12)
                 }
                 .overlay {
-                    if visibleCourses.isEmpty {
+                    if isLoadingSchedule && !isCurrentSemester {
+                        ProgressView("正在读取所选学期课表…")
+                            .padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    } else if visibleCourses.isEmpty {
                         ContentUnavailableView(
-                            "第 \(store.selectedWeek) 周暂无课程",
+                            scheduleError != nil && !isCurrentSemester ? "课表读取失败" : "第 \(displayedWeek) 周暂无课程",
                             systemImage: "calendar.badge.checkmark",
-                            description: Text("可切换教学周查看其他安排")
+                            description: Text(scheduleError ?? "可切换教学周查看其他安排")
                         )
                     }
                 }
             }
+        }
+        .task(id: "\(store.studentID)|\(store.lastUpdated.timeIntervalSince1970)|\(semesterListRevision)") {
+            let accountID = store.studentID
+            let accountChanged = semesterAccountID != accountID
+            if accountChanged {
+                semesterAccountID = accountID
+                semesters = []
+                selectedSemesterID = ""
+                selectedSemesterCourses = []
+                semesterWeeks = [:]
+                scheduleError = nil
+            }
+            isLoadingSemesters = true
+            semesterError = nil
+            do {
+                let values = try await store.performCampusRequest { try await $0.scheduleSemesters() }
+                guard !Task.isCancelled, store.studentID == accountID else { return }
+                semesters = values
+                if accountChanged || !values.contains(where: { $0.id == selectedSemesterID }) {
+                    selectedSemesterID = values.first(where: \.current)?.id ?? values.first?.id ?? ""
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, store.studentID == accountID else { return }
+                semesterError = "学期列表读取失败：\(error.localizedDescription)"
+            }
+            if store.studentID == accountID { isLoadingSemesters = false }
+        }
+        .task(id: "\(store.studentID)|\(selectedSemesterID)|\(scheduleRevision)") {
+            let semesterID = selectedSemesterID
+            guard !semesterID.isEmpty, !isCurrentSemester else {
+                selectedSemesterCourses = []
+                scheduleError = nil
+                isLoadingSchedule = false
+                return
+            }
+            isLoadingSchedule = true
+            scheduleError = nil
+            selectedSemesterCourses = []
+            do {
+                let values = try await store.performCampusRequest { try await $0.courses(semesterID: semesterID) }
+                guard !Task.isCancelled, selectedSemesterID == semesterID else { return }
+                selectedSemesterCourses = store.mapCourses(values)
+                let maximumWeek = max(store.totalWeeks, selectedSemesterCourses.flatMap(\.weekIndexes).max() ?? 1)
+                semesterWeeks[semesterID] = min(max(semesterWeeks[semesterID, default: 1], 1), maximumWeek)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, selectedSemesterID == semesterID else { return }
+                scheduleError = error.localizedDescription
+            }
+            if selectedSemesterID == semesterID { isLoadingSchedule = false }
         }
     }
 
@@ -132,42 +243,48 @@ struct ScheduleView: View {
         HStack(spacing: 12) {
             PageHeader(
                 title: "电子课表",
-                subtitle:
-                    "共 \(store.totalWeeks) 周 · 当前第 \(store.currentWeek) 周",
+                subtitle: "\(selectedSemester?.name ?? "当前学期") · 共 \(displayedTotalWeeks) 周" + (isCurrentSemester ? " · 当前第 \(store.currentWeek) 周" : ""),
                 symbol: "calendar.day.timeline.left"
             )
             Spacer()
+            Picker("学期课程表", selection: $selectedSemesterID) {
+                if semesters.isEmpty {
+                    Text(isLoadingSemesters ? "正在读取学期…" : "当前学期").tag("")
+                }
+                ForEach(semesters) { semester in
+                    Text(semester.current ? "\(semester.name)（当前）" : semester.name).tag(semester.id)
+                }
+            }
+            .labelsHidden().frame(width: 190).disabled(isLoadingSemesters || semesters.isEmpty)
             Button {
-                store.selectedWeek = max(1, store.selectedWeek - 1)
+                displayedWeek = max(1, displayedWeek - 1)
             } label: {
                 Image(systemName: "chevron.left")
             }
-            .disabled(store.selectedWeek == 1)
+            .disabled(displayedWeek == 1)
 
             VStack(spacing: 1) {
-                Text("第 \(store.selectedWeek) 周")
+                Text("第 \(displayedWeek) 周")
                     .font(.headline)
-                if store.selectedWeek == store.currentWeek {
+                if isCurrentSemester && displayedWeek == store.currentWeek {
                     Text("当前周").font(.caption2).foregroundStyle(.tint)
                 }
             }
             .frame(minWidth: 78)
 
             Button {
-                store.selectedWeek = min(
-                    store.totalWeeks,
-                    store.selectedWeek + 1
-                )
+                displayedWeek = min(displayedTotalWeeks, displayedWeek + 1)
             } label: {
                 Image(systemName: "chevron.right")
             }
-            .disabled(store.selectedWeek == store.totalWeeks)
+            .disabled(displayedWeek == displayedTotalWeeks)
 
             Button("本周") {
+                selectedSemesterID = currentSemesterID
                 store.selectedWeek = store.currentWeek
             }
             .buttonStyle(.bordered)
-            .disabled(store.selectedWeek == store.currentWeek)
+            .disabled(isCurrentSemester && store.selectedWeek == store.currentWeek)
         }
         .padding(26)
     }
@@ -179,7 +296,7 @@ struct ScheduleView: View {
         fontScale: CGFloat
     ) -> some View {
 
-        let isCurrentWeek = store.selectedWeek == store.currentWeek
+        let isCurrentWeek = isCurrentSemester && displayedWeek == store.currentWeek
 
         return TimelineView(.periodic(from: .now, by: 60)) { _ in
             ZStack(alignment: .topLeading) {
@@ -230,9 +347,7 @@ struct ScheduleView: View {
                 ) { index, time in
                     VStack(spacing: 2) {
                         Text("\(index + 1)")
-                            .font(
-                                .system(size: 13 * fontScale, weight: .semibold)
-                            )
+                            .font(.system(size: 13 * fontScale, weight: .semibold))
                         Text(time)
                             .font(
                                 .system(
@@ -293,8 +408,7 @@ struct ScheduleView: View {
         let totalMinutes = currentHour * 60 + currentMinute
         let weekday = calendar.component(.weekday, from: now)
         let currentDayIndex = (weekday == 1) ? 6 : (weekday - 2)
-        let isTodayInSchedule =
-            currentDayIndex >= 0 && currentDayIndex < days.count
+        let isTodayInSchedule = currentDayIndex >= 0 && currentDayIndex < days.count
 
         if let currentY = calculateIndicatorY(
             totalMinutes: totalMinutes,
@@ -310,14 +424,10 @@ struct ScheduleView: View {
                         path.move(to: CGPoint(x: 0, y: currentY))
                         path.addLine(to: CGPoint(x: todayStartX, y: currentY))
                         path.move(to: CGPoint(x: todayEndX, y: currentY))
-                        path.addLine(
-                            to: CGPoint(x: totalGridWidth, y: currentY)
-                        )
+                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
                     } else {
                         path.move(to: CGPoint(x: 0, y: currentY))
-                        path.addLine(
-                            to: CGPoint(x: totalGridWidth, y: currentY)
-                        )
+                        path.addLine(to: CGPoint(x: totalGridWidth, y: currentY))
                     }
                 }
                 .stroke(Color.red.opacity(0.25), lineWidth: 1.5)

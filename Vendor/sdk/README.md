@@ -73,7 +73,14 @@ curl.exe -H "X-AHUTONG-TOKEN: <YOUR_TOKEN>" http://127.0.0.1:3000/exam
 
 **查询课表**
 ```bash
+# 当前学期
 curl.exe -H "X-AHUTONG-TOKEN: <YOUR_TOKEN>" http://127.0.0.1:3000/schedule
+
+# 教务系统提供的全部可查询学期
+curl.exe -H "X-AHUTONG-TOKEN: <YOUR_TOKEN>" http://127.0.0.1:3000/schedule/semesters
+
+# 指定历史或后续学期；semester_id 必须来自上述列表
+curl.exe -H "X-AHUTONG-TOKEN: <YOUR_TOKEN>" "http://127.0.0.1:3000/schedule?semester_id=100"
 ```
 
 **查询成绩**
